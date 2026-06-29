@@ -11,9 +11,10 @@ const {
 } = require('../controllers/bookingController');
 const { protect, authorize } = require('../middleware/auth');
 
-router.post('/', protect, authorize('customer'), createBooking);
+router.post('/', protect, authorize('customer', 'user'), createBooking);
 router.get('/my', protect, getMyBookings);
-router.get('/owner', protect, authorize('owner'), getOwnerBookings);
+router.get('/mybookings', protect, getMyBookings);
+router.get('/owner', protect, authorize('owner', 'admin'), getOwnerBookings);
 router.get('/admin/all', protect, authorize('admin'), getAllBookingsAdmin);
 router.get('/:id', protect, getBooking);
 router.put('/:id/status', protect, updateBookingStatus);

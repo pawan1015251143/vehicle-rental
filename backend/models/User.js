@@ -1,92 +1,62 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/db');
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 
-const userSchema = new mongoose.Schema(
-  {
-    name: {
-      type: String,
-      required: [true, 'Name is required'],
-      trim: true,
-      maxlength: [50, 'Name cannot exceed 50 characters'],
-    },
-    email: {
-      type: String,
-      required: [true, 'Email is required'],
-      unique: true,
-      lowercase: true,
-      match: [/^\S+@\S+\.\S+$/, 'Please enter a valid email'],
-    },
-    password: {
-      type: String,
-      required: [true, 'Password is required'],
-      minlength: [6, 'Password must be at least 6 characters'],
-      select: false,
-    },
-    phone: {
-      type: String,
-      match: [/^[0-9]{10}$/, 'Please enter a valid 10-digit phone number'],
-    },
-    role: {
-      type: String,
-      enum: ['customer', 'owner', 'driver', 'admin'],
-      default: 'customer',
-    },
-    avatar: {
-      public_id: String,
-      url: {
-        type: String,
-        default: '',
-      },
-    },
-    address: {
-      street: String,
-      city: String,
-      state: String,
-      pincode: String,
-    },
-    drivingLicense: {
-      number: String,
-      image: {
-        public_id: String,
-        url: String,
-      },
-      verified: {
-        type: Boolean,
-        default: false,
-      },
-    },
-    isActive: {
-      type: Boolean,
-      default: true,
-    },
-    wishlist: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Vehicle',
-      },
-    ],
+const User = sequelize.define('User', {
+  id: {
+    type: DataTypes.INTEGER,
+    autoIncrement: true,
+    primaryKey: true
   },
-  { timestamps: true }
-);
-
-// Hash password before saving
-userSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) return next();
-  this.password = await bcrypt.hash(this.password, 12);
-  next();
+  name: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  email: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    unique: true,
+    validate: { isEmail: true }
+  },
+  password: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  phone: {
+    type: DataTypes.STRING,
+    allowNull: true // प्रोफाइल अपडेट और रजिस्ट्रेशन के लिए ज़रूरी है
+  },
+  address: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  role: {
+    type: DataTypes.ENUM('customer', 'owner', 'driver', 'admin', 'user'), // कंट्रोलर के मुताबिक सारे रोल्स ऐड कर दिए
+    defaultValue: 'customer'
+  },
+  avatar: {
+    type: DataTypes.JSON, // इमेज ऑब्जेक्ट (public_id और url) स्टोर करने के लिए
+    allowNull: true
+  },
+  isActive: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: true // लॉगिन चेक के लिए ज़रूरी है
+  }
+}, {
+  timestamps: true
 });
 
-// Compare password
-userSchema.methods.comparePassword = async function (candidatePassword) {
-  return await bcrypt.compare(candidatePassword, this.password);
+// 🔑 कंट्रोलर के मुताबिक पासवर्ड मैच करने का मेथड (comparePassword नाम से)
+User.prototype.comparePassword = async function (enteredPassword) {
+  return await bcrypt.compare(enteredPassword, this.password);
 };
 
-// Generate JWT
-userSchema.methods.generateToken = function () {
-  return jwt.sign({ id: this._id, role: this.role }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRE || '7d',
-  });
-};
+// 🔄 'beforeSave' हुक: यह नए रजिस्ट्रेशन और पासवर्ड अपडेट दोनों समय पासवर्ड को खुद-ब-खुद हैश कर देगा
+User.beforeSave(async (user) => {
+  if (user.changed('password')) {
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(user.password, salt);
+  }
+});
 
-module.exports = mongoose.model('User', userSchema);
+module.exports = User;

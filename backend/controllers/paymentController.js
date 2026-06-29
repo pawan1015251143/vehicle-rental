@@ -1,7 +1,7 @@
 const crypto = require('crypto');
-const Booking = require('../models/Booking');
-const Vehicle = require('../models/Vehicle');
 const razorpay = require('../config/razorpay');
+const Payment = require('../models/Payment');
+const Booking = require('../models/Booking');
 
 // @desc    Create Razorpay order
 // @route   POST /api/payments/create-order
@@ -9,129 +9,87 @@ exports.createOrder = async (req, res, next) => {
   try {
     const { bookingId } = req.body;
 
-    const booking = await Booking.findById(bookingId);
+    const booking = await Booking.findByPk(bookingId);
     if (!booking) {
-      return res
-        .status(404)
-        .json({ success: false, message: 'Booking not found' });
+      return res.status(404).json({ success: false, message: 'Booking not found' });
     }
 
-    if (booking.customer.toString() !== req.user._id.toString()) {
-      return res
-        .status(403)
-        .json({ success: false, message: 'Not authorized' });
-    }
-
-    if (booking.paymentStatus === 'paid') {
-      return res
-        .status(400)
-        .json({ success: false, message: 'Payment already completed' });
+    if (booking.userId !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Not authorized for this booking' });
     }
 
     const options = {
-      amount: Math.round(booking.totalAmount * 100), // Razorpay expects paise
+      amount: Math.round(Number(booking.totalPrice) * 100),
       currency: 'INR',
-      receipt: `booking_${booking._id}`,
-      notes: {
-        bookingId: booking._id.toString(),
-        customerEmail: req.user.email,
-      },
+      receipt: `receipt_booking_${booking.id}`,
     };
 
     const order = await razorpay.orders.create(options);
 
-    booking.orderId = order.id;
+    await Payment.create({
+      bookingId: booking.id,
+      userId: req.user.id,
+      razorpayOrderId: order.id,
+      amount: booking.totalPrice,
+      status: 'pending',
+    });
+
+    booking.razorpayOrderId = order.id;
     await booking.save();
 
     res.status(200).json({
       success: true,
-      order,
       key: process.env.RAZORPAY_KEY_ID,
+      order,
     });
   } catch (error) {
     next(error);
   }
 };
 
-// @desc    Verify payment
+// @desc    Verify Razorpay payment
 // @route   POST /api/payments/verify
 exports.verifyPayment = async (req, res, next) => {
   try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } =
-      req.body;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
 
-    // Verify signature
-    const body = razorpay_order_id + '|' + razorpay_payment_id;
-    const expectedSignature = crypto
+    const sign = `${razorpay_order_id}|${razorpay_payment_id}`;
+    const expectedSign = crypto
       .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
-      .update(body.toString())
+      .update(sign)
       .digest('hex');
 
-    if (expectedSignature !== razorpay_signature) {
-      return res
-        .status(400)
-        .json({ success: false, message: 'Payment verification failed' });
+    if (expectedSign !== razorpay_signature) {
+      return res.status(400).json({ success: false, message: 'Invalid signature, payment failed' });
     }
 
-    // Update booking
-    const booking = await Booking.findOne({ orderId: razorpay_order_id });
-    if (!booking) {
-      return res
-        .status(404)
-        .json({ success: false, message: 'Booking not found' });
+    const payment = await Payment.findOne({ where: { razorpayOrderId: razorpay_order_id } });
+    if (payment) {
+      if (payment.userId !== req.user.id) {
+        return res.status(403).json({ success: false, message: 'Not authorized for this payment' });
+      }
+
+      payment.razorpayPaymentId = razorpay_payment_id;
+      payment.razorpaySignature = razorpay_signature;
+      payment.status = 'captured';
+      await payment.save();
     }
 
-    booking.paymentId = razorpay_payment_id;
-    booking.razorpaySignature = razorpay_signature;
-    booking.paymentStatus = 'paid';
-    booking.status = 'confirmed';
-    await booking.save();
+    const booking = await Booking.findOne({ where: { razorpayOrderId: razorpay_order_id } });
+    if (booking) {
+      if (booking.userId !== req.user.id) {
+        return res.status(403).json({ success: false, message: 'Not authorized for this booking' });
+      }
 
-    // Increment vehicle booking count
-    await Vehicle.findByIdAndUpdate(booking.vehicle, {
-      $inc: { totalBookings: 1 },
-    });
-
-    await booking.populate([
-      { path: 'vehicle', select: 'name brand model images' },
-      { path: 'customer', select: 'name email' },
-    ]);
-
-    res.status(200).json({
-      success: true,
-      message: 'Payment verified and booking confirmed',
-      booking,
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// @desc    Get payment details
-// @route   GET /api/payments/:bookingId
-exports.getPaymentDetails = async (req, res, next) => {
-  try {
-    const booking = await Booking.findById(req.params.bookingId)
-      .populate('vehicle', 'name brand model pricePerDay pricePerHour')
-      .populate('customer', 'name email');
-
-    if (!booking) {
-      return res
-        .status(404)
-        .json({ success: false, message: 'Booking not found' });
+      booking.status = 'confirmed';
+      booking.paymentStatus = 'paid';
+      await booking.save();
     }
 
     res.status(200).json({
       success: true,
-      payment: {
-        bookingId: booking._id,
-        amount: booking.totalAmount,
-        status: booking.paymentStatus,
-        paymentId: booking.paymentId,
-        orderId: booking.orderId,
-        vehicle: booking.vehicle,
-        customer: booking.customer,
-      },
+      message: 'Payment verified successfully',
+      booking: booking ? { ...booking.toJSON(), _id: booking.id, totalAmount: Number(booking.totalPrice) } : null,
     });
   } catch (error) {
     next(error);

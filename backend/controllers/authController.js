@@ -1,4 +1,10 @@
 const User = require('../models/User');
+const jwt = require('jsonwebtoken');
+
+// JWT टोकन जनरेट करने का हेल्पर फंक्शन (Mongoose मॉडल मेथड की जगह)
+const generateToken = (id) => {
+  return jwt.sign({ id }, process.env.JWT_SECRET || 'secretkey', { expiresIn: '30d' });
+};
 
 // @desc    Register user
 // @route   POST /api/auth/register
@@ -6,8 +12,8 @@ exports.register = async (req, res, next) => {
   try {
     const { name, email, password, phone, role } = req.body;
 
-    // Check if user already exists
-    const existingUser = await User.findOne({ email });
+    // Check if user already exists (Sequelize structure)
+    const existingUser = await User.findOne({ where: { email } });
     if (existingUser) {
       return res
         .status(400)
@@ -26,14 +32,14 @@ exports.register = async (req, res, next) => {
       role: userRole,
     });
 
-    const token = user.generateToken();
+    const token = generateToken(user.id);
 
     res.status(201).json({
       success: true,
       message: 'Registration successful',
       token,
       user: {
-        _id: user._id,
+        _id: user.id, // फ्रंटएंड कंपैटिबिलिटी के लिए id को _id बनाकर भेजा है
         name: user.name,
         email: user.email,
         role: user.role,
@@ -58,7 +64,8 @@ exports.login = async (req, res, next) => {
         .json({ success: false, message: 'Please provide email and password' });
     }
 
-    const user = await User.findOne({ email }).select('+password');
+    // MySQL में findOne के लिए 'where' ऑब्जेक्ट का उपयोग होता है
+    const user = await User.findOne({ where: { email } });
     if (!user) {
       return res
         .status(401)
@@ -71,6 +78,7 @@ exports.login = async (req, res, next) => {
         .json({ success: false, message: 'Account has been deactivated' });
     }
 
+    // पासवर्ड कंपेयर करने के लिए हमारा नया Sequelize प्रोटोटाइप मेथड
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
       return res
@@ -78,14 +86,14 @@ exports.login = async (req, res, next) => {
         .json({ success: false, message: 'Invalid email or password' });
     }
 
-    const token = user.generateToken();
+    const token = generateToken(user.id);
 
     res.status(200).json({
       success: true,
       message: 'Login successful',
       token,
       user: {
-        _id: user._id,
+        _id: user.id,
         name: user.name,
         email: user.email,
         role: user.role,
@@ -102,11 +110,21 @@ exports.login = async (req, res, next) => {
 // @route   GET /api/auth/me
 exports.getMe = async (req, res, next) => {
   try {
-    const user = await User.findById(req.user._id).populate('wishlist');
+    // req.user.id को मिडलवेयर से रीड करेंगे (पक्का करें मिडलवेयर में req.user = user सेट हो)
+    const user = await User.findByPk(req.user.id);
 
     res.status(200).json({
       success: true,
-      user,
+      user: {
+        _id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        phone: user.phone,
+        address: user.address,
+        avatar: user.avatar,
+        isActive: user.isActive
+      },
     });
   } catch (error) {
     next(error);
@@ -119,16 +137,29 @@ exports.updateProfile = async (req, res, next) => {
   try {
     const { name, phone, address } = req.body;
 
-    const user = await User.findByIdAndUpdate(
-      req.user._id,
-      { name, phone, address },
-      { new: true, runValidators: true }
-    );
+    const user = await User.findByPk(req.user.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Sequelize में अपडेट करने का तरीका
+    user.name = name || user.name;
+    user.phone = phone || user.phone;
+    user.address = address || user.address;
+    await user.save();
 
     res.status(200).json({
       success: true,
       message: 'Profile updated',
-      user,
+      user: {
+        _id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        phone: user.phone,
+        address: user.address,
+        avatar: user.avatar,
+      },
     });
   } catch (error) {
     next(error);
@@ -141,7 +172,7 @@ exports.updatePassword = async (req, res, next) => {
   try {
     const { currentPassword, newPassword } = req.body;
 
-    const user = await User.findById(req.user._id).select('+password');
+    const user = await User.findByPk(req.user.id);
 
     const isMatch = await user.comparePassword(currentPassword);
     if (!isMatch) {
@@ -150,10 +181,11 @@ exports.updatePassword = async (req, res, next) => {
         .json({ success: false, message: 'Current password is incorrect' });
     }
 
+    // नया पासवर्ड डालने पर हमारे hook के द्वारा यह अपने आप हैश हो जाएगा
     user.password = newPassword;
     await user.save();
 
-    const token = user.generateToken();
+    const token = generateToken(user.id);
 
     res.status(200).json({
       success: true,
@@ -175,21 +207,28 @@ exports.uploadAvatar = async (req, res, next) => {
         .json({ success: false, message: 'Please upload an image' });
     }
 
-    const user = await User.findByIdAndUpdate(
-      req.user._id,
-      {
-        avatar: {
-          public_id: req.file.filename,
-          url: req.file.path,
-        },
-      },
-      { new: true }
-    );
+    const user = await User.findByPk(req.user.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // JSON डेटा टाइप के रूप में इमेज ऑब्जेक्ट को सेव करना
+    user.avatar = {
+      public_id: req.file.filename,
+      url: req.file.path,
+    };
+    await user.save();
 
     res.status(200).json({
       success: true,
       message: 'Avatar uploaded',
-      user,
+      user: {
+        _id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        avatar: user.avatar,
+      },
     });
   } catch (error) {
     next(error);

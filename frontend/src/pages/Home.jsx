@@ -1,152 +1,96 @@
-import { useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { useDispatch, useSelector } from 'react-redux';
-import { fetchVehicles } from '../redux/slices/vehicleSlice';
-import VehicleCard from '../components/vehicles/VehicleCard';
-import Loader from '../components/common/Loader';
-import { FaCar, FaShieldAlt, FaHeadset, FaMoneyBillWave } from 'react-icons/fa';
-import { FiSearch, FiArrowRight } from 'react-icons/fi';
-import { useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
 
 const Home = () => {
-  const dispatch = useDispatch();
   const navigate = useNavigate();
-  const { vehicles, loading } = useSelector((state) => state.vehicles);
-  const [searchCity, setSearchCity] = useState('');
 
-  useEffect(() => {
-    dispatch(fetchVehicles({ limit: 8 }));
-  }, [dispatch]);
-
-  const handleSearch = (e) => {
-    e.preventDefault();
-    navigate(`/vehicles${searchCity ? `?city=${searchCity}` : ''}`);
+  const handleNavigation = (role) => {
+    if (role === 'customer') {
+      navigate('/vehicles');
+    } else {
+      // ओनर या ड्राइवर के लिए रोल को क्वेरी पैरामीटर में भेजेंगे ताकि रजिस्टर पेज उसे पहचान सके
+      navigate(`/register?role=${role}`);
+    }
   };
 
-  const features = [
-    { icon: FaCar, title: 'Wide Selection', desc: 'Cars, bikes, SUVs, and more from verified owners' },
-    { icon: FaShieldAlt, title: 'Safe & Secure', desc: 'All vehicles verified and insured for your safety' },
-    { icon: FaMoneyBillWave, title: 'Best Prices', desc: 'Competitive hourly and daily rental rates' },
-    { icon: FaHeadset, title: '24/7 Support', desc: 'Real-time chat with owners and customer support' },
-  ];
-
-  const vehicleTypes = [
-    { type: 'car', label: 'Cars', emoji: '🚗' },
-    { type: 'bike', label: 'Bikes', emoji: '🏍️' },
-    { type: 'suv', label: 'SUVs', emoji: '🚙' },
-    { type: 'scooter', label: 'Scooters', emoji: '🛵' },
-    { type: 'van', label: 'Vans', emoji: '🚐' },
-    { type: 'truck', label: 'Trucks', emoji: '🚛' },
-  ];
-
   return (
-    <div>
-      {/* Hero Section */}
-      <section className="bg-gradient-to-br from-primary-600 via-primary-700 to-primary-900 text-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 md:py-28">
-          <div className="max-w-3xl">
-            <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold leading-tight">
-              Rent Your Perfect <br />
-              <span className="text-primary-200">Vehicle Today</span>
-            </h1>
-            <p className="mt-4 text-lg text-primary-100 max-w-xl">
-              Find the best vehicles for rent — by the hour or by the day.
-              Book instantly, pay securely, and hit the road.
+    <div className="min-h-screen bg-slate-950 text-white font-sans relative overflow-hidden flex flex-col justify-center items-center py-16">
+      
+      {/* 🌌 बैकग्राउंड नियॉन ग्लो इफेक्ट्स */}
+      <div className="absolute top-[-10%] left-[15%] w-[500px] h-[500px] bg-cyan-500/10 rounded-full blur-[120px] pointer-events-none"></div>
+      <div className="absolute bottom-[-10%] right-[15%] w-[500px] h-[500px] bg-purple-500/10 rounded-full blur-[120px] pointer-events-none"></div>
+
+      {/* 🚀 हीरो सेक्शन */}
+      <div className="text-center max-w-3xl mx-auto px-6 mb-16 z-10 relative">
+        <h1 className="text-5xl md:text-6xl font-extrabold tracking-tight mb-6 bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-600">
+          Drive. Earn. Connect.
+        </h1>
+        <p className="text-lg md:text-xl text-gray-400 font-light leading-relaxed">
+          पटना का सबसे आधुनिक व्हीकल रेंटल प्लेटफॉर्म। चाहे गाड़ी किराए पर चाहिए, अपनी गाड़ी से कमाना हो, या बतौर ड्राइवर जुड़ना हो—सब कुछ एक ही जगह।
+        </p>
+      </div>
+
+      {/* 🎴 ग्लासमोर्फिक ऐक्शन कार्ड्स (Role-based Flow) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 px-6 max-w-6xl w-full mx-auto z-10 relative">
+        
+        {/* कार्ड 1: कस्टमर (Book Vehicle) */}
+        <div className="backdrop-blur-xl bg-white/[0.02] border border-white/10 p-8 rounded-2xl shadow-2xl hover:border-cyan-500/40 transition-all duration-300 transform hover:-translate-y-2 flex flex-col justify-between">
+          <div>
+            <div className="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center mb-6 text-cyan-400 font-bold text-xl">
+              🚗
+            </div>
+            <h3 className="text-2xl font-bold text-white mb-3">Need a Ride?</h3>
+            <p className="text-gray-400 text-sm leading-relaxed mb-6">
+              शानदार कार्स और बाइक्स बुक करें सबसे किफायती दामों पर। बिना किसी हिडन चार्ज के आसान और सुरक्षित बुकिंग।
             </p>
-
-            {/* Search Bar */}
-            <form onSubmit={handleSearch} className="mt-8 flex gap-2">
-              <div className="flex-1 relative">
-                <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-xl" />
-                <input
-                  type="text"
-                  placeholder="Enter city to search vehicles..."
-                  value={searchCity}
-                  onChange={(e) => setSearchCity(e.target.value)}
-                  className="w-full pl-12 pr-4 py-3 rounded-lg text-gray-900 focus:ring-2 focus:ring-primary-300 outline-none"
-                />
-              </div>
-              <button type="submit" className="bg-primary-500 hover:bg-primary-400 px-6 py-3 rounded-lg font-semibold transition-colors whitespace-nowrap">
-                Search
-              </button>
-            </form>
           </div>
+          <button 
+            onClick={() => handleNavigation('customer')}
+            className="w-full py-3 rounded-xl bg-cyan-500 hover:bg-cyan-600 text-black font-semibold text-sm tracking-wide shadow-[0_0_15px_rgba(6,182,212,0.3)] transition-all duration-300"
+          >
+            Find Vehicles
+          </button>
         </div>
-      </section>
 
-      {/* Vehicle Types */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <h2 className="text-2xl font-bold text-center mb-8">Browse by Vehicle Type</h2>
-        <div className="grid grid-cols-3 md:grid-cols-6 gap-4">
-          {vehicleTypes.map((vt) => (
-            <Link
-              key={vt.type}
-              to={`/vehicles?type=${vt.type}`}
-              className="flex flex-col items-center p-4 bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow border hover:border-primary-300"
-            >
-              <span className="text-3xl mb-2">{vt.emoji}</span>
-              <span className="text-sm font-medium text-gray-700">{vt.label}</span>
-            </Link>
-          ))}
-        </div>
-      </section>
-
-      {/* Featured Vehicles */}
-      <section className="bg-gray-50 py-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center mb-8">
-            <h2 className="text-2xl font-bold">Featured Vehicles</h2>
-            <Link to="/vehicles" className="text-primary-600 hover:text-primary-700 font-medium flex items-center gap-1">
-              View All <FiArrowRight />
-            </Link>
+        {/* कार्ड 2: ओनर (Apply as Vehicle Owner) */}
+        <div className="backdrop-blur-xl bg-white/[0.02] border border-white/10 p-8 rounded-2xl shadow-2xl hover:border-purple-500/40 transition-all duration-300 transform hover:-translate-y-2 flex flex-col justify-between">
+          <div>
+            <div className="w-12 h-12 rounded-xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center mb-6 text-purple-400 font-bold text-xl">
+              💰
+            </div>
+            <h3 className="text-2xl font-bold text-white mb-3">Rent Your Vehicle</h3>
+            <p className="text-gray-400 text-sm leading-relaxed mb-6">
+              अपनी खाली खड़ी कार या बाइक को कमाई का जरिया बनाएं। हमारे साथ जुड़ें और घर बैठे हर महीने बेहतरीन रेंटल इनकम पाएं।
+            </p>
           </div>
-
-          {loading ? (
-            <Loader text="Loading vehicles..." />
-          ) : vehicles.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              {vehicles.slice(0, 8).map((vehicle) => (
-                <VehicleCard key={vehicle._id} vehicle={vehicle} />
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-12 text-gray-500">
-              <FaCar className="text-5xl mx-auto mb-4 text-gray-300" />
-              <p>No vehicles available yet. Be the first to list one!</p>
-            </div>
-          )}
+          <button 
+            onClick={() => handleNavigation('owner')}
+            className="w-full py-3 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-sm tracking-wide shadow-[0_0_15px_rgba(147,51,234,0.3)] transition-all duration-300"
+          >
+            Apply as Owner
+          </button>
         </div>
-      </section>
 
-      {/* Features */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <h2 className="text-2xl font-bold text-center mb-12">Why Choose VehicleRent?</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
-          {features.map(({ icon: Icon, title, desc }) => (
-            <div key={title} className="text-center p-6">
-              <div className="w-14 h-14 bg-primary-100 rounded-xl flex items-center justify-center mx-auto mb-4">
-                <Icon className="text-2xl text-primary-600" />
-              </div>
-              <h3 className="font-semibold text-lg mb-2">{title}</h3>
-              <p className="text-sm text-gray-500">{desc}</p>
+        {/* कार्ड 3: ड्राइवर (Apply as Driver) */}
+        <div className="backdrop-blur-xl bg-white/[0.02] border border-white/10 p-8 rounded-2xl shadow-2xl hover:border-emerald-500/40 transition-all duration-300 transform hover:-translate-y-2 flex flex-col justify-between">
+          <div>
+            <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center mb-6 text-emerald-400 font-bold text-xl">
+              🔑
             </div>
-          ))}
+            <h3 className="text-2xl font-bold text-white mb-3">Join as Driver</h3>
+            <p className="text-gray-400 text-sm leading-relaxed mb-6">
+              ड्राइविंग कम्युनिटी का हिस्सा बनें। अपनी मर्जी के वर्किंग आवर्स चुनें, बेहतरीन राइड्स स्वीकार करें और हर हफ्ते सीधा पेमेंट पाएं।
+            </p>
+          </div>
+          <button 
+            onClick={() => handleNavigation('driver')}
+            className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-black font-semibold text-sm tracking-wide shadow-[0_0_15px_rgba(16,185,129,0.3)] transition-all duration-300"
+          >
+            Apply as Driver
+          </button>
         </div>
-      </section>
 
-      {/* CTA */}
-      <section className="bg-primary-600 text-white py-16">
-        <div className="max-w-4xl mx-auto text-center px-4">
-          <h2 className="text-3xl font-bold mb-4">Have a Vehicle? Start Earning!</h2>
-          <p className="text-primary-100 mb-6">
-            List your vehicle on VehicleRent and earn money from rentals. Easy setup, quick approvals.
-          </p>
-          <Link to="/register" className="inline-block bg-white text-primary-600 font-semibold px-8 py-3 rounded-lg hover:bg-primary-50 transition-colors">
-            Register as Owner
-          </Link>
-        </div>
-      </section>
+      </div>
     </div>
   );
 };

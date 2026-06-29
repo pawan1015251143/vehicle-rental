@@ -1,20 +1,24 @@
+const path = require('path');
+const dotenv = require('dotenv');
+
+// Load env vars before importing config, routes, or controllers.
+dotenv.config({ path: path.resolve(__dirname, '.env') });
+
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const mongoSanitize = require('express-mongo-sanitize');
-const dotenv = require('dotenv');
-const connectDB = require('./config/db');
+const { connectDB, sequelize } = require('./config/db'); // 🔄 MongoDB की जगह MySQL db इम्पोर्ट किया
 const errorHandler = require('./middleware/errorHandler');
 const setupSocket = require('./utils/socket');
 
-// Load env vars
-dotenv.config({ path: './.env' });
-
-// Connect to database
+// 🔄 MySQL डेटाबेस कनेक्ट और टेबल्स सिंक करना
 connectDB();
+sequelize.sync({ alter: true }).then(() => {
+  console.log('🔄 All MySQL Tables Synced successfully!');
+});
 
 const app = express();
 const server = http.createServer(app);
@@ -34,8 +38,7 @@ setupSocket(io);
 app.set('io', io);
 
 // Security Middleware
-app.use(helmet());
-app.use(mongoSanitize());
+app.use(helmet()); // 🔄 यहाँ से mongoSanitize हटा दिया गया है
 
 // Rate limiting
 const limiter = rateLimit({

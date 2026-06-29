@@ -1,18 +1,31 @@
-const mongoose = require('mongoose');
+const { Sequelize } = require('sequelize');
+const dotenv = require('dotenv');
 
+dotenv.config();
+
+// MySQL से Sequelize का कनेक्शन सेटअप
+const sequelize = new Sequelize(
+  process.env.DB_NAME,
+  process.env.DB_USER,
+  process.env.DB_PASSWORD,
+  {
+    host: process.env.DB_HOST,
+    dialect: 'mysql',
+    logging: false, 
+    port: process.env.DB_PORT || 3306
+  }
+);
+
+// कनेक्शन को टेस्ट करने का फंक्शन
 const connectDB = async () => {
   try {
-    if (!process.env.MONGODB_URI) {
-      throw new Error('MONGODB_URI is required in environment variables');
-    }
-
-    const conn = await mongoose.connect(process.env.MONGODB_URI);
-
-    console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
+    await sequelize.authenticate();
+    console.log('🚀 MySQL Database Connected Successfully via Sequelize!');
   } catch (error) {
-    console.error(`❌ MongoDB Error: ${error.message}`);
+    console.error('❌ MySQL Connection Error:', error.message);
     process.exit(1);
   }
 };
 
-module.exports = connectDB;
+// 🌟 यह सबसे ज़रूरी लाइन है, दोनों को ऑब्जेक्ट बनाकर एक्सपोर्ट करना है!
+module.exports = { sequelize, connectDB };

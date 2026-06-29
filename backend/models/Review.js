@@ -1,76 +1,31 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/db');
 
-const reviewSchema = new mongoose.Schema(
-  {
-    user: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true,
-    },
-    vehicle: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Vehicle',
-      required: true,
-    },
-    booking: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Booking',
-      required: true,
-    },
-    rating: {
-      type: Number,
-      required: [true, 'Rating is required'],
-      min: 1,
-      max: 5,
-    },
-    comment: {
-      type: String,
-      required: [true, 'Review comment is required'],
-      maxlength: [500, 'Comment cannot exceed 500 characters'],
-    },
+const Review = sequelize.define('Review', {
+  id: {
+    type: DataTypes.INTEGER,
+    autoIncrement: true,
+    primaryKey: true
   },
-  { timestamps: true }
-);
-
-// Prevent duplicate reviews per booking
-reviewSchema.index({ user: 1, booking: 1 }, { unique: true });
-
-// Static method to calculate average rating
-reviewSchema.statics.calculateAverageRating = async function (vehicleId) {
-  const stats = await this.aggregate([
-    { $match: { vehicle: vehicleId } },
-    {
-      $group: {
-        _id: '$vehicle',
-        avgRating: { $avg: '$rating' },
-        numReviews: { $sum: 1 },
-      },
-    },
-  ]);
-
-  const Vehicle = require('./Vehicle');
-
-  if (stats.length > 0) {
-    await Vehicle.findByIdAndUpdate(vehicleId, {
-      averageRating: Math.round(stats[0].avgRating * 10) / 10,
-      totalReviews: stats[0].numReviews,
-    });
-  } else {
-    await Vehicle.findByIdAndUpdate(vehicleId, {
-      averageRating: 0,
-      totalReviews: 0,
-    });
+  userId: {
+    type: DataTypes.INTEGER, // रिव्यू देने वाले यूज़र की ID
+    allowNull: false
+  },
+  vehicleId: {
+    type: DataTypes.INTEGER, // जिस गाड़ी को रिव्यू मिला है
+    allowNull: false
+  },
+  rating: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    validate: { min: 1, max: 5 } // 1 से 5 स्टार रेटिंग
+  },
+  comment: {
+    type: DataTypes.TEXT,
+    allowNull: true
   }
-};
-
-reviewSchema.post('save', function () {
-  this.constructor.calculateAverageRating(this.vehicle);
+}, {
+  timestamps: true
 });
 
-reviewSchema.post('findOneAndDelete', function (doc) {
-  if (doc) {
-    doc.constructor.calculateAverageRating(doc.vehicle);
-  }
-});
-
-module.exports = mongoose.model('Review', reviewSchema);
+module.exports = Review;
