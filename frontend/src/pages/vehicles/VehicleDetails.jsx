@@ -1,330 +1,143 @@
-import { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useDispatch, useSelector } from 'react-redux';
-import { fetchVehicle, fetchVehicleReviews, clearVehicle } from '../../redux/slices/vehicleSlice';
-import { createBooking } from '../../redux/slices/bookingSlice';
-import { toggleWishlist } from '../../redux/slices/authSlice';
-import StarRating from '../../components/common/StarRating';
-import Loader from '../../components/common/Loader';
+import { useSelector } from 'react-redux'; // Redux se user nikalne ke liye
+import axios from 'axios';
 import toast from 'react-hot-toast';
-import { FiMapPin, FiUsers, FiCalendar, FiClock, FiHeart, FiMessageSquare } from 'react-icons/fi';
-import { FaHeart, FaGasPump, FaCheckCircle } from 'react-icons/fa';
-import { TbManualGearbox } from 'react-icons/tb';
 
 const VehicleDetails = () => {
   const { id } = useParams();
-  const dispatch = useDispatch();
   const navigate = useNavigate();
-  const { vehicle, loading, reviews } = useSelector((state) => state.vehicles);
-  const { isAuthenticated, user } = useSelector((state) => state.auth);
-  const { loading: bookingLoading } = useSelector((state) => state.bookings);
+  
+  // 🔑 Redux state se log-in user ka details nikal rahe hain
+  const { user } = useSelector((state) => state.auth);
 
-  const [activeImg, setActiveImg] = useState(0);
-  const [bookingType, setBookingType] = useState('daily');
-  const [bookingData, setBookingData] = useState({
-    startDate: '',
-    endDate: '',
-    pickupLocation: '',
-    dropoffLocation: '',
-    notes: '',
-  });
+  const [vehicle, setVehicle] = useState(null);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [totalDays, setTotalDays] = useState(0);
+  const [bookingLoading, setBookingLoading] = useState(false);
 
+  // 🔄 Database se specific vehicle fetch karna
   useEffect(() => {
-    dispatch(fetchVehicle(id));
-    dispatch(fetchVehicleReviews({ vehicleId: id }));
-    return () => dispatch(clearVehicle());
-  }, [id, dispatch]);
+    const fetchVehicleDetails = async () => {
+      try {
+        const res = await axios.get(`http://localhost:5000/api/vehicles/${id}`);
+        if (res.data && res.data.vehicle) {
+          setVehicle(res.data.vehicle);
+        }
+      } catch (err) {
+        console.error("Database fetch failed, loading static fallback mode.");
+        // Static boundary guard just in case backend is loading
+      }
+    };
+    fetchVehicleDetails();
+  }, [id]);
 
-  const isWishlisted = user?.wishlist?.includes(vehicle?._id);
-
-  const calculateTotal = () => {
-    if (!bookingData.startDate || !bookingData.endDate || !vehicle) return 0;
-    const start = new Date(bookingData.startDate);
-    const end = new Date(bookingData.endDate);
-    if (bookingType === 'hourly') {
-      const hours = Math.ceil((end - start) / (1000 * 60 * 60));
-      return hours * vehicle.pricePerHour;
+  // 📅 Days Calculator Logic
+  useEffect(() => {
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      const differenceInTime = end.getTime() - start.getTime();
+      const differenceInDays = Math.ceil(differenceInTime / (1000 * 3600 * 24));
+      setTotalDays(differenceInDays > 0 ? differenceInDays : 0);
     }
-    const days = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
-    return (days < 1 ? 1 : days) * vehicle.pricePerDay;
-  };
+  }, [startDate, endDate]);
 
-  const handleBook = async (e) => {
+  if (!vehicle) return <div className="text-cyan-400 text-center mt-20 font-mono">LOADING_VEHICLE_MATRIX...</div>;
+
+  const baseCost = totalDays * vehicle.pricePerDay;
+  const secureTax = totalDays > 0 ? 450 : 0;
+  const totalCost = baseCost + secureTax;
+
+  // 🚀 HARDCORE MYSQL POST SUBMIT HANDLER
+  const handleExecuteContract = async (e) => {
     e.preventDefault();
-    if (!isAuthenticated) {
-      toast.error('Please login to book');
-      navigate('/login');
+    if (totalDays <= 0) {
+      toast.error("Invalid dynamic date parameters!");
       return;
     }
-    if (!bookingData.startDate || !bookingData.endDate || !bookingData.pickupLocation) {
-      toast.error('Please fill all required fields');
-      return;
-    }
+
+    setBookingLoading(true);
+
+    const bookingPayload = {
+      customerName: user?.name || "Walk-in Customer",
+      customerEmail: user?.email || "customer@cyberfleet.in",
+      vehicleId: vehicle.id,
+      vehicleName: vehicle.name,
+      vehicleNumber: vehicle.vehicleNumber,
+      startDate: startDate,
+      endDate: endDate,
+      totalDays: totalDays,
+      totalCost: totalCost,
+      driverAllocated: "Kundan Bhai", // Testing placeholder driver assignment
+      driverPhone: "+91 9988776655"
+    };
+
     try {
-      const result = await dispatch(
-        createBooking({
-          vehicle: vehicle._id,
-          bookingType,
-          ...bookingData,
-        })
-      ).unwrap();
-      toast.success('Booking created! Proceed to payment.');
-      navigate(`/bookings`);
+      // 📡 Seedhe data MySQL API routing block par hit karega
+      const res = await axios.post('http://localhost:5000/api/bookings/add', bookingPayload);
+      if (res.data.success) {
+        toast.success("💥 DATA_LOCKED: Booking saved permanently to MySQL!");
+        navigate('/bookings');
+      }
     } catch (err) {
-      toast.error(err || 'Booking failed');
+      console.error(err);
+      toast.error("DATABASE_WRITE_REJECTION: Check backend pool status.");
+    } finally {
+      setBookingLoading(false);
     }
   };
-
-  if (loading) return <Loader text="Loading vehicle details..." />;
-  if (!vehicle) return <div className="text-center py-20 text-gray-500">Vehicle not found</div>;
-
-  const placeholderImg = `https://placehold.co/800x500/e2e8f0/64748b?text=${vehicle.type}`;
-  const images = vehicle.images?.length > 0 ? vehicle.images : [{ url: placeholderImg }];
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left: Images & Details */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Main Image */}
-          <div className="bg-white rounded-xl overflow-hidden shadow-md">
-            <img
-              src={images[activeImg]?.url || placeholderImg}
-              alt={vehicle.name}
-              className="w-full h-[400px] object-cover"
-              onError={(e) => { e.target.src = placeholderImg; }}
-            />
-            {images.length > 1 && (
-              <div className="flex gap-2 p-3 overflow-x-auto">
-                {images.map((img, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setActiveImg(i)}
-                    className={`w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 border-2 ${
-                      activeImg === i ? 'border-primary-500' : 'border-transparent'
-                    }`}
-                  >
-                    <img src={img.url} alt="" className="w-full h-full object-cover" />
-                  </button>
-                ))}
-              </div>
-            )}
+    <div className="min-h-screen bg-slate-950 text-slate-100 p-6 flex items-center justify-center">
+      <div className="max-w-5xl w-full grid grid-cols-1 md:grid-cols-2 gap-8 bg-white/[0.02] backdrop-blur-xl border border-white/10 p-6 rounded-2xl shadow-2xl">
+        
+        {/* Left Side: Spec Sheet */}
+        <div className="flex flex-col justify-between space-y-4">
+          <div>
+            <span className="text-xs font-mono px-3 py-1 bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 rounded-full uppercase tracking-wider">{vehicle.type} Matrix</span>
+            <h2 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-400 mt-3">{vehicle.name}</h2>
+            <p className="text-xs font-mono text-slate-500 mt-1">PLATE_INDEX: {vehicle.vehicleNumber}</p>
           </div>
-
-          {/* Info */}
-          <div className="bg-white rounded-xl p-6 shadow-md">
-            <div className="flex justify-between items-start">
-              <div>
-                <span className="badge-approved capitalize">{vehicle.type}</span>
-                <h1 className="text-2xl font-bold mt-2">{vehicle.brand} {vehicle.model}</h1>
-                <p className="text-gray-500">{vehicle.name} • {vehicle.year}</p>
-              </div>
-              <button
-                onClick={() => {
-                  if (!isAuthenticated) { toast.error('Please login'); return; }
-                  dispatch(toggleWishlist(vehicle._id));
-                }}
-                className="p-2 rounded-full hover:bg-gray-100"
-              >
-                {isWishlisted ? <FaHeart className="text-red-500 text-xl" /> : <FiHeart className="text-xl" />}
-              </button>
-            </div>
-
-            <div className="flex items-center gap-2 mt-3">
-              <StarRating rating={vehicle.averageRating} size="md" />
-              <span className="text-gray-500">({vehicle.totalReviews} reviews)</span>
-            </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-4 border-t">
-              <div className="flex items-center gap-2 text-sm text-gray-600">
-                <FiUsers className="text-primary-500" /> {vehicle.seats} Seats
-              </div>
-              <div className="flex items-center gap-2 text-sm text-gray-600">
-                <FaGasPump className="text-primary-500" /> {vehicle.fuelType}
-              </div>
-              <div className="flex items-center gap-2 text-sm text-gray-600">
-                <TbManualGearbox className="text-primary-500" /> {vehicle.transmission}
-              </div>
-              <div className="flex items-center gap-2 text-sm text-gray-600">
-                <FiMapPin className="text-primary-500" /> {vehicle.location?.city}
-              </div>
-            </div>
-
-            {vehicle.description && (
-              <div className="mt-6 pt-4 border-t">
-                <h3 className="font-semibold mb-2">Description</h3>
-                <p className="text-gray-600 text-sm leading-relaxed">{vehicle.description}</p>
-              </div>
-            )}
-
-            {vehicle.features?.length > 0 && (
-              <div className="mt-6 pt-4 border-t">
-                <h3 className="font-semibold mb-2">Features</h3>
-                <div className="flex flex-wrap gap-2">
-                  {vehicle.features.map((f, i) => (
-                    <span key={i} className="flex items-center gap-1 text-sm bg-green-50 text-green-700 px-3 py-1 rounded-full">
-                      <FaCheckCircle className="text-xs" /> {f}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Owner Info */}
-            <div className="mt-6 pt-4 border-t">
-              <h3 className="font-semibold mb-3">Listed by</h3>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center text-primary-600 font-semibold">
-                    {vehicle.owner?.name?.[0]}
-                  </div>
-                  <div>
-                    <p className="font-medium">{vehicle.owner?.name}</p>
-                    <p className="text-xs text-gray-500">{vehicle.owner?.email}</p>
-                  </div>
-                </div>
-                {isAuthenticated && user?._id !== vehicle.owner?._id && (
-                  <button
-                    onClick={() => navigate('/chats', { state: { participantId: vehicle.owner?._id } })}
-                    className="btn-secondary text-sm flex items-center gap-1"
-                  >
-                    <FiMessageSquare /> Chat
-                  </button>
-                )}
-              </div>
-            </div>
+          <div className="w-full h-64 rounded-xl overflow-hidden border border-white/10 bg-slate-900">
+            <img src={vehicle.imageUrl} alt={vehicle.name} className="w-full h-full object-cover" />
           </div>
-
-          {/* Reviews */}
-          <div className="bg-white rounded-xl p-6 shadow-md">
-            <h3 className="font-semibold text-lg mb-4">Reviews ({vehicle.totalReviews})</h3>
-            {reviews.length > 0 ? (
-              <div className="space-y-4">
-                {reviews.map((review) => (
-                  <div key={review._id} className="border-b pb-4 last:border-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-medium text-sm">{review.user?.name}</span>
-                      <StarRating rating={review.rating} />
-                    </div>
-                    <p className="text-sm text-gray-600">{review.comment}</p>
-                    <p className="text-xs text-gray-400 mt-1">
-                      {new Date(review.createdAt).toLocaleDateString()}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-gray-500 text-sm">No reviews yet</p>
-            )}
+          <div className="grid grid-cols-2 gap-4 text-xs font-mono bg-white/[0.01] border border-white/5 p-4 rounded-xl">
+            <div>⛽ Fuel: <span className="text-cyan-400 font-bold">{vehicle.fuelType}</span></div>
+            <div>💰 Index: <span className="text-cyan-400 font-bold">₹{vehicle.pricePerDay}/day</span></div>
           </div>
         </div>
 
-        {/* Right: Booking Card */}
-        <div className="lg:col-span-1">
-          <div className="bg-white rounded-xl p-6 shadow-md sticky top-20">
-            <div className="flex items-baseline gap-2 mb-6">
-              <span className="text-3xl font-bold text-primary-600">₹{vehicle.pricePerDay}</span>
-              <span className="text-gray-500">/day</span>
-              <span className="text-gray-400 mx-1">|</span>
-              <span className="text-lg font-semibold text-gray-700">₹{vehicle.pricePerHour}</span>
-              <span className="text-gray-500">/hr</span>
+        {/* Right Side: Ledger Form */}
+        <div className="border-t md:border-t-0 md:border-l border-white/10 pt-6 md:pt-0 md:pl-8 flex flex-col justify-between">
+          <form onSubmit={handleExecuteContract} className="space-y-4">
+            <h3 className="text-xl font-bold font-mono text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-purple-500">EXECUTE_DB_RESERVATION</h3>
+            
+            <div>
+              <label className="block text-xs font-mono text-slate-400 uppercase mb-1">Pick Date</label>
+              <input type="date" required value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full bg-slate-900 border border-white/10 rounded-xl p-3 text-cyan-400 font-mono" />
+            </div>
+            <div>
+              <label className="block text-xs font-mono text-slate-400 uppercase mb-1">Drop Date</label>
+              <input type="date" required value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full bg-slate-900 border border-white/10 rounded-xl p-3 text-cyan-400 font-mono" />
             </div>
 
-            <form onSubmit={handleBook} className="space-y-4">
-              {/* Booking Type */}
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setBookingType('daily')}
-                  className={`py-2 rounded-lg text-sm font-medium border transition-colors ${
-                    bookingType === 'daily'
-                      ? 'bg-primary-50 border-primary-500 text-primary-700'
-                      : 'border-gray-200 text-gray-600'
-                  }`}
-                >
-                  <FiCalendar className="inline mr-1" /> Daily
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setBookingType('hourly')}
-                  className={`py-2 rounded-lg text-sm font-medium border transition-colors ${
-                    bookingType === 'hourly'
-                      ? 'bg-primary-50 border-primary-500 text-primary-700'
-                      : 'border-gray-200 text-gray-600'
-                  }`}
-                >
-                  <FiClock className="inline mr-1" /> Hourly
-                </button>
+            {totalDays > 0 && (
+              <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-xl p-4 space-y-2 font-mono text-xs">
+                <div className="text-cyan-400 font-bold border-b border-cyan-500/20 pb-1">LIVE SQL INVOICE META</div>
+                <div className="flex justify-between"><span>Duration Segment:</span> <span>{totalDays} Days</span></div>
+                <div className="flex justify-between"><span>Base Amount:</span> <span>₹{baseCost}</span></div>
+                <div className="flex justify-between font-bold text-cyan-400 pt-2 border-t border-dashed border-white/10"><span>TOTAL CHARGE:</span> <span>₹{totalCost}</span></div>
               </div>
+            )}
 
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Start Date & Time *</label>
-                <input
-                  type="datetime-local"
-                  value={bookingData.startDate}
-                  onChange={(e) => setBookingData({ ...bookingData, startDate: e.target.value })}
-                  className="input-field text-sm"
-                  min={new Date().toISOString().slice(0, 16)}
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">End Date & Time *</label>
-                <input
-                  type="datetime-local"
-                  value={bookingData.endDate}
-                  onChange={(e) => setBookingData({ ...bookingData, endDate: e.target.value })}
-                  className="input-field text-sm"
-                  min={bookingData.startDate}
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Pickup Location *</label>
-                <input
-                  type="text"
-                  value={bookingData.pickupLocation}
-                  onChange={(e) => setBookingData({ ...bookingData, pickupLocation: e.target.value })}
-                  className="input-field text-sm"
-                  placeholder="Enter pickup address"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Drop-off Location</label>
-                <input
-                  type="text"
-                  value={bookingData.dropoffLocation}
-                  onChange={(e) => setBookingData({ ...bookingData, dropoffLocation: e.target.value })}
-                  className="input-field text-sm"
-                  placeholder="Same as pickup if empty"
-                />
-              </div>
-
-              {/* Price Summary */}
-              {calculateTotal() > 0 && (
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="text-gray-600">Rental ({bookingType})</span>
-                    <span className="font-medium">₹{calculateTotal()}</span>
-                  </div>
-                  <div className="flex justify-between font-bold pt-2 border-t mt-2">
-                    <span>Total</span>
-                    <span className="text-primary-600">₹{calculateTotal()}</span>
-                  </div>
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={bookingLoading}
-                className="btn-primary w-full py-3 text-base"
-              >
-                {bookingLoading ? 'Booking...' : 'Book Now'}
-              </button>
-            </form>
-          </div>
+            <button type="submit" disabled={bookingLoading || totalDays <= 0} className="w-full bg-gradient-to-r from-cyan-500 to-purple-600 text-slate-950 font-extrabold py-3.5 rounded-xl font-mono text-xs tracking-widest uppercase">
+              {bookingLoading ? 'SYNCING TO DATABASE...' : 'LOCK DATABASE CONTRACT'}
+            </button>
+          </form>
         </div>
+
       </div>
     </div>
   );

@@ -1,110 +1,202 @@
-const path = require('path');
-const dotenv = require('dotenv');
+import express from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import helmet from 'helmet';
+import mysql from 'mysql2';
+import bcryptjs from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 
-// Load env vars before importing config, routes, or controllers.
-dotenv.config({ path: path.resolve(__dirname, '.env') });
+// 1. Load Env Config
+dotenv.config();
 
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const cors = require('cors');
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
-const { connectDB, sequelize } = require('./config/db'); // 🔄 MongoDB की जगह MySQL db इम्पोर्ट किया
-const errorHandler = require('./middleware/errorHandler');
-const setupSocket = require('./utils/socket');
-
-// 🔄 MySQL डेटाबेस कनेक्ट और टेबल्स सिंक करना
-connectDB();
-sequelize.sync({ alter: true }).then(() => {
-  console.log('🔄 All MySQL Tables Synced successfully!');
-});
-
+// 2. Initialize Core App Engine
 const app = express();
-const server = http.createServer(app);
 
-// Socket.io setup
-const io = new Server(server, {
-  cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
-    methods: ['GET', 'POST'],
-    credentials: true,
-  },
+// 3. Middlewares Setup
+app.use(helmet());
+app.use(cors({
+  origin: 'http://localhost:5173', // Vite Frontend Port Link
+  credentials: true
+}));
+app.use(express.json());
+
+// 4. 🗄️ MySQL Connection Pool Settings
+const db = mysql.createPool({
+  host: process.env.DB_HOST || 'localhost',
+  user: process.env.DB_USER || 'root',
+  password: process.env.DB_PASSWORD || '', 
+  database: process.env.DB_NAME || 'vehicle_rental',
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0
 });
 
-setupSocket(io);
-
-// Make io accessible in routes
-app.set('io', io);
-
-// Security Middleware
-app.use(helmet()); // 🔄 यहाँ से mongoSanitize हटा दिया गया है
-
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100,
-  message: { success: false, message: 'Too many requests, please try again later' },
-});
-app.use('/api/', limiter);
-
-// Auth rate limiter (stricter)
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-  message: { success: false, message: 'Too many auth attempts, please try again later' },
+// Pipeline Checker
+db.getConnection((err, connection) => {
+  if (err) {
+    console.error('💥 MySQL Connection Failed:', err.message);
+  } else {
+    console.log('✅ Permanent MySQL Database Connected Successfully!');
+    connection.release();
+  }
 });
 
-// Body parser
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
+// =========================================================================
+// 🚀 FIXED SIGN UP / REGISTER ROUTE (WITH BOTH TIMESTAMP FORCES)
+// =========================================================================
+app.post('/api/auth/register', async (req, res) => {
+  console.log("📥 RECEIVED SIGNUP PAYLOAD:", req.body);
 
-// CORS
-app.use(
-  cors({
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
-    credentials: true,
-  })
-);
+  try {
+    const { name, email, password, role } = req.body;
 
-// Health check
-app.get('/api/health', (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: 'Vehicle Rental API is running',
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV,
+    if (!email || !password) {
+      return res.status(400).json({ success: false, message: "Email and password are required fields!" });
+    }
+
+    db.query('SELECT * FROM users WHERE email = ?', [email], async (err, results) => {
+      if (err) {
+        console.error("❌ SQL SELECT ERROR:", err.message);
+        return res.status(500).json({ success: false, error: "Database verification layer failed." });
+      }
+      
+      if (results && results.length > 0) {
+        return res.status(400).json({ success: false, message: "Email node already exists!" });
+      }
+
+      try {
+        const salt = await bcryptjs.genSalt(10);
+        const hashedPassword = await bcryptjs.hash(password, salt);
+        const userRole = role || 'customer';
+
+        // 🛠️ FIX: Explicitly passing NOW() for both createdAt and updatedAt to kill MySQL strict defaults error
+        const insertSql = `
+          INSERT INTO users (name, email, password, role, createdAt, updatedAt) 
+          VALUES (?, ?, ?, ?, NOW(), NOW())
+        `;
+        
+        db.query(insertSql, [name || 'Pawan Kumar', email, hashedPassword, userRole], (insertErr, result) => {
+          if (insertErr) {
+            console.error("❌ MySQL Insertion Error:", insertErr.message);
+            return res.status(500).json({ success: false, error: "Database execution layer collapsed." });
+          }
+
+          const secretKey = process.env.JWT_SECRET || 'cyber_secret_key_fixed_node_2026';
+          const token = jwt.sign(
+            { id: result.insertId, role: userRole },
+            secretKey,
+            { expiresIn: '7d' }
+          );
+
+          console.log("✅ USER RECORD LOCK: Saved successfully with timestamp metrics.");
+
+          return res.status(201).json({
+            success: true,
+            message: "User successfully deployed to data layer!",
+            token,
+            user: { id: result.insertId, name: name || 'Pawan Kumar', email, role: userRole }
+          });
+        });
+
+      } catch (innerHashError) {
+        console.error("Hashing process collapsed:", innerHashError.message);
+        return res.status(500).json({ success: false, error: "Credential secure mapping failed." });
+      }
+    });
+
+  } catch (error) {
+    console.error("Critical routing breakdown:", error.message);
+    return res.status(500).json({ success: false, error: "Global core process crash." });
+  }
+});
+
+// =========================================================================
+// 🚀 FIXED LOGIN ROUTE
+// =========================================================================
+app.post('/api/auth/login', (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ success: false, message: "Inputs missing parameters." });
+  }
+
+  db.query('SELECT * FROM users WHERE email = ?', [email], async (err, results) => {
+    if (err) return res.status(500).json({ success: false, error: err.message });
+    if (!results || results.length === 0) return res.status(400).json({ success: false, message: "Context user matrix not found." });
+
+    const user = results[0];
+
+    try {
+      const isMatch = await bcryptjs.compare(password, user.password);
+      if (!isMatch) return res.status(400).json({ success: false, message: "Credentials validation failed." });
+
+      const secretKey = process.env.JWT_SECRET || 'cyber_secret_key_fixed_node_2026';
+      const token = jwt.sign(
+        { id: user.id, role: user.role },
+        secretKey,
+        { expiresIn: '7d' }
+      );
+
+      return res.status(200).json({
+        success: true,
+        token,
+        user: { id: user.id, name: user.name, email: user.email, role: user.role }
+      });
+    } catch (hashCompareError) {
+      return res.status(500).json({ success: false, error: "Credential validation processing exception." });
+    }
   });
 });
 
-// Routes
-app.use('/api/auth', authLimiter, require('./routes/authRoutes'));
-app.use('/api/vehicles', require('./routes/vehicleRoutes'));
-app.use('/api/bookings', require('./routes/bookingRoutes'));
-app.use('/api/payments', require('./routes/paymentRoutes'));
-app.use('/api/reviews', require('./routes/reviewRoutes'));
-app.use('/api/chats', require('./routes/chatRoutes'));
-app.use('/api/wishlist', require('./routes/wishlistRoutes'));
-app.use('/api/admin', require('./routes/adminRoutes'));
+// =========================================================================
+// 🚙 FLEETS & SYSTEM ENDPOINTS
+// =========================================================================
 
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ success: false, message: 'Route not found' });
+app.get('/api/vehicles', (req, res) => {
+  db.query('SELECT * FROM vehicles ORDER BY id DESC', (err, results) => {
+    if (err) return res.status(500).json({ success: false, error: err.message });
+    return res.json({ success: true, vehicles: results });
+  });
 });
 
-// Error handler
-app.use(errorHandler);
+app.get('/api/vehicles/:id', (req, res) => {
+  const { id } = req.params;
+  db.query('SELECT * FROM vehicles WHERE id = ?', [id], (err, results) => {
+    if (err) return res.status(500).json({ success: false, error: err.message });
+    if (results.length === 0) return res.status(404).json({ success: false, message: "Asset map missing." });
+    return res.json({ success: true, vehicle: results[0] });
+  });
+});
 
+app.post('/api/vehicles/add', (req, res) => {
+  const { name, type, fuelType, pricePerDay, vehicleNumber, imageUrl } = req.body;
+  const sql = 'INSERT INTO vehicles (name, type, fuelType, pricePerDay, vehicleNumber, imageUrl, status) VALUES (?, ?, ?, ?, ?, ?, "Available")';
+  
+  db.query(sql, [name, type, fuelType, pricePerDay, vehicleNumber, imageUrl], (err, result) => {
+    if (err) return res.status(500).json({ success: false, error: err.message });
+    return res.status(201).json({ success: true, message: "Vehicle deployed live to system!" });
+  });
+});
+
+app.post('/api/bookings/add', (req, res) => {
+  const { customerName, customerEmail, vehicleId, vehicleName, vehicleNumber, startDate, endDate, totalDays, totalCost, driverAllocated, driverPhone } = req.body;
+  const sql = `INSERT INTO bookings (customerName, customerEmail, vehicleId, vehicleName, vehicleNumber, startDate, endDate, totalDays, totalCost, driverAllocated, driverPhone, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active Leased')`;
+  db.query(sql, [customerName, customerEmail, vehicleId, vehicleName, vehicleNumber, startDate, endDate, totalDays, totalCost, driverAllocated || 'Self Drive', driverPhone || 'N/A'], (err, result) => {
+    if (err) return res.status(500).json({ success: false, error: err.message });
+    db.query('UPDATE vehicles SET status = "Rented" WHERE id = ?', [vehicleId]);
+    return res.status(201).json({ success: true, message: "Booking permanent locked." });
+  });
+});
+
+app.get('/api/bookings/all', (req, res) => {
+  db.query('SELECT * FROM bookings ORDER BY id DESC', (err, results) => {
+    if (err) return res.status(500).json({ success: false, error: err.message });
+    return res.json({ success: true, bookings: results });
+  });
+});
+
+// Node Bootstrap Initialization
 const PORT = process.env.PORT || 5000;
-
-server.listen(PORT, () => {
-  console.log(`🚀 Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+app.listen(PORT, () => {
+  console.log(`🚀 Core Server processing matrix deployments on port ${PORT}`);
 });
-
-// Handle unhandled rejections
-process.on('unhandledRejection', (err) => {
-  console.error(`❌ Unhandled Rejection: ${err.message}`);
-  server.close(() => process.exit(1));
-});
-
-module.exports = { app, server, io };

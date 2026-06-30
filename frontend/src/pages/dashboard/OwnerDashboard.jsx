@@ -1,272 +1,252 @@
-import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { useDispatch, useSelector } from 'react-redux';
-import { fetchMyVehicles, deleteVehicle, createVehicle } from '../../redux/slices/vehicleSlice';
-import { fetchOwnerBookings, updateBookingStatus } from '../../redux/slices/bookingSlice';
-import Loader from '../../components/common/Loader';
+import React, { useState } from 'react';
 import toast from 'react-hot-toast';
-import { FiPlus, FiTrash2, FiTruck, FiDollarSign, FiCalendar, FiEdit } from 'react-icons/fi';
+
+// Initial Owner Fleet (With default images mapping)
+const initialOwnerFleet = [
+  { 
+    id: 1, 
+    name: "Mahindra Thar Roxx", 
+    type: "SUV", 
+    fuelType: "Diesel", 
+    pricePerDay: 3500, 
+    vehicleNumber: "BR-01-TH-2026", 
+    status: "Rented",
+    imageUrl: "https://images.unsplash.com/photo-1695662057396-4190e2fe7f07?auto=format&fit=crop&q=80&w=600"
+  },
+  { 
+    id: 5, 
+    name: "Ford Mustang GT V8", 
+    type: "Luxury", 
+    fuelType: "Petrol", 
+    pricePerDay: 15000, 
+    vehicleNumber: "BR-01-GT-5000", 
+    status: "Available",
+    imageUrl: "https://images.unsplash.com/photo-1611245555447-4c18227ece35?auto=format&fit=crop&q=80&w=600"
+  }
+];
+
+// Dummy Live Rentals Database Grid
+const initialBookingsLedger = [
+  {
+    id: "B-9901",
+    customerName: "Pawan Gupta",
+    vehicleName: "Mahindra Thar Roxx",
+    vehicleNumber: "BR-01-TH-2026",
+    duration: "01 July to 05 July (2026)",
+    driverAllocated: "Kundan Bhai",
+    driverPhone: "+91 9988776655",
+    status: "Active Leased"
+  }
+];
 
 const OwnerDashboard = () => {
-  const dispatch = useDispatch();
-  const navigate = useNavigate();
-  const { myVehicles, loading: vLoading } = useSelector((state) => state.vehicles);
-  const { bookings, loading: bLoading } = useSelector((state) => state.bookings);
-  const { user } = useSelector((state) => state.auth);
-  const [tab, setTab] = useState('vehicles');
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [formData, setFormData] = useState({
-    name: '', type: 'car', brand: '', model: '', year: new Date().getFullYear(),
-    registrationNumber: '', fuelType: 'petrol', transmission: 'manual', seats: 4,
-    pricePerHour: '', pricePerDay: '', city: '', state: '', address: '', description: '', features: '',
+  const [fleet, setFleet] = useState(initialOwnerFleet);
+  const [bookings] = useState(initialBookingsLedger);
+
+  // Add Vehicle Form States (With imageUrl Block)
+  const [newVehicle, setNewVehicle] = useState({
+    name: '',
+    type: 'SUV',
+    fuelType: 'Petrol',
+    pricePerDay: '',
+    vehicleNumber: '',
+    imageUrl: '' // Dynamic Image URL Link State
   });
-  const [images, setImages] = useState(null);
 
-  useEffect(() => {
-    dispatch(fetchMyVehicles());
-    dispatch(fetchOwnerBookings({}));
-  }, [dispatch]);
+  const handleInputChange = (e) => {
+    setNewVehicle({ ...newVehicle, [e.target.name]: e.target.value });
+  };
 
-  const totalRevenue = bookings
-    .filter((b) => b.paymentStatus === 'paid')
-    .reduce((sum, b) => sum + b.totalAmount, 0);
-
-  const handleAddVehicle = async (e) => {
+  const handleAddVehicle = (e) => {
     e.preventDefault();
-    const fd = new FormData();
-    Object.entries(formData).forEach(([key, val]) => {
-      if (key === 'city' || key === 'state' || key === 'address') return;
-      if (key === 'features') {
-        fd.append(key, val);
-        return;
-      }
-      fd.append(key, val);
-    });
-    fd.append('location[city]', formData.city);
-    fd.append('location[state]', formData.state);
-    fd.append('location[address]', formData.address);
-    if (images) {
-      for (let i = 0; i < images.length; i++) {
-        fd.append('images', images[i]);
-      }
+    if (!newVehicle.name || !newVehicle.pricePerDay || !newVehicle.vehicleNumber) {
+      toast.error("SYSTEM_ERROR: Fill required parameter blocks!");
+      return;
     }
-    try {
-      await dispatch(createVehicle(fd)).unwrap();
-      toast.success('Vehicle added! Pending admin approval.');
-      setShowAddForm(false);
-      setFormData({
-        name: '', type: 'car', brand: '', model: '', year: new Date().getFullYear(),
-        registrationNumber: '', fuelType: 'petrol', transmission: 'manual', seats: 4,
-        pricePerHour: '', pricePerDay: '', city: '', state: '', address: '', description: '', features: '',
-      });
-      setImages(null);
-    } catch (err) {
-      toast.error(err || 'Failed to add vehicle');
-    }
-  };
 
-  const handleDeleteVehicle = async (id) => {
-    if (window.confirm('Delete this vehicle?')) {
-      try {
-        await dispatch(deleteVehicle(id)).unwrap();
-        toast.success('Vehicle deleted');
-      } catch (err) {
-        toast.error(err);
-      }
-    }
-  };
+    // Default Fallback Image agar user URL na dale toh
+    const finalImageUrl = newVehicle.imageUrl.trim() || "https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?auto=format&fit=crop&q=80&w=600";
 
-  const handleBookingAction = async (id, status) => {
-    try {
-      await dispatch(updateBookingStatus({ id, status })).unwrap();
-      toast.success(`Booking ${status}`);
-    } catch (err) {
-      toast.error(err);
-    }
-  };
+    const createdNode = {
+      id: Date.now(), // Unique ID generation
+      ...newVehicle,
+      pricePerDay: parseInt(newVehicle.pricePerDay),
+      imageUrl: finalImageUrl,
+      status: 'Available'
+    };
 
-  const statusBadge = {
-    pending: 'bg-yellow-100 text-yellow-700',
-    approved: 'bg-green-100 text-green-700',
-    rejected: 'bg-red-100 text-red-700',
+    setFleet([...fleet, createdNode]);
+    toast.success(`FLEET_MUTATION: ${newVehicle.name} deployed with graphics network node!`);
+    
+    // Reset form states completely
+    setNewVehicle({ name: '', type: 'SUV', fuelType: 'Petrol', pricePerDay: '', vehicleNumber: '', imageUrl: '' });
   };
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold mb-2">Owner Dashboard</h1>
-      <p className="text-gray-500 mb-6">Welcome, {user?.name}</p>
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <div className="bg-white rounded-xl p-5 shadow-sm border">
-          <FiTruck className="text-2xl text-blue-500 mb-2" />
-          <p className="text-2xl font-bold">{myVehicles.length}</p>
-          <p className="text-sm text-gray-500">My Vehicles</p>
-        </div>
-        <div className="bg-white rounded-xl p-5 shadow-sm border">
-          <FiCalendar className="text-2xl text-green-500 mb-2" />
-          <p className="text-2xl font-bold">{bookings.length}</p>
-          <p className="text-sm text-gray-500">Total Bookings</p>
-        </div>
-        <div className="bg-white rounded-xl p-5 shadow-sm border">
-          <FiDollarSign className="text-2xl text-purple-500 mb-2" />
-          <p className="text-2xl font-bold">₹{totalRevenue}</p>
-          <p className="text-sm text-gray-500">Total Revenue</p>
-        </div>
-        <div className="bg-white rounded-xl p-5 shadow-sm border">
-          <FiCalendar className="text-2xl text-orange-500 mb-2" />
-          <p className="text-2xl font-bold">{bookings.filter((b) => b.status === 'pending').length}</p>
-          <p className="text-sm text-gray-500">Pending Bookings</p>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-4 border-b mb-6">
-        {['vehicles', 'bookings'].map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`pb-3 px-1 font-medium capitalize transition-colors ${
-              tab === t ? 'text-primary-600 border-b-2 border-primary-600' : 'text-gray-500'
-            }`}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
-
-      {/* Vehicles Tab */}
-      {tab === 'vehicles' && (
+    <div className="min-h-screen bg-slate-950 text-slate-100 p-6 space-y-10">
+      
+      {/* Header Panel */}
+      <header className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-start md:items-center border-b border-white/5 pb-6 gap-4">
         <div>
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold">My Vehicles</h2>
-            <button onClick={() => setShowAddForm(!showAddForm)} className="btn-primary text-sm flex items-center gap-1">
-              <FiPlus /> Add Vehicle
+          <h1 className="text-4xl font-extrabold tracking-wide text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-cyan-500 drop-shadow-[0_0_15px_rgba(168,85,247,0.2)]">
+            FLEET CONTROL TERMINAL
+          </h1>
+          <p className="text-slate-400 text-sm mt-1 font-mono">Manage active deployments, list inventory nodes, track assignments.</p>
+        </div>
+        <div className="bg-purple-500/10 border border-purple-500/20 text-purple-400 font-mono text-xs px-4 py-2 rounded-xl">
+          ROLE: VEHICLE_OWNER_NODE
+        </div>
+      </header>
+
+      <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8">
+        
+        {/* Left Side: Dynamic Add Vehicle Form with Photo Field */}
+        <div className="lg:col-span-1 bg-white/[0.02] backdrop-blur-md border border-white/10 rounded-2xl p-6 h-fit space-y-6">
+          <h2 className="text-xl font-bold font-mono tracking-wide text-purple-400 border-b border-white/5 pb-2">
+            ➕ REGISTER_NEW_VEHICLE
+          </h2>
+          
+          <form onSubmit={handleAddVehicle} className="space-y-4">
+            <div>
+              <label className="block text-[11px] font-mono text-slate-400 uppercase mb-1">Model Name</label>
+              <input 
+                type="text" name="name" required value={newVehicle.name} onChange={handleInputChange} placeholder="e.g., Fortuner Legender"
+                className="w-full bg-slate-900 border border-white/10 rounded-xl p-3 text-purple-400 font-mono focus:outline-none focus:border-purple-500 text-xs"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-[11px] font-mono text-slate-400 uppercase mb-1">Category</label>
+                <select name="type" value={newVehicle.type} onChange={handleInputChange} className="w-full bg-slate-900 text-slate-300 border border-white/10 rounded-xl p-3 font-mono text-xs focus:outline-none">
+                  <option value="SUV">SUV</option>
+                  <option value="Sedan">Sedan</option>
+                  <option value="Luxury">Luxury</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-mono text-slate-400 uppercase mb-1">Fuel Core</label>
+                <select name="fuelType" value={newVehicle.fuelType} onChange={handleInputChange} className="w-full bg-slate-900 text-slate-300 border border-white/10 rounded-xl p-3 font-mono text-xs focus:outline-none">
+                  <option value="Petrol">Petrol</option>
+                  <option value="Diesel">Diesel</option>
+                  <option value="Electric">EV Node</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-mono text-slate-400 uppercase mb-1">Rate / Day (INR)</label>
+              <input 
+                type="number" name="pricePerDay" required value={newVehicle.pricePerDay} onChange={handleInputChange} placeholder="₹ Cost Per 24h"
+                className="w-full bg-slate-900 border border-white/10 rounded-xl p-3 text-purple-400 font-mono focus:outline-none focus:border-purple-500 text-xs"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-mono text-slate-400 uppercase mb-1">Plate Registration Index</label>
+              <input 
+                type="text" name="vehicleNumber" required value={newVehicle.vehicleNumber} onChange={handleInputChange} placeholder="e.g., BR-01-XX-9999"
+                className="w-full bg-slate-900 border border-white/10 rounded-xl p-3 text-purple-400 font-mono focus:outline-none focus:border-purple-500 text-xs"
+              />
+            </div>
+
+            {/* 📸 PHOTOGRAPH FIELD (YE RAHI PHOTO KI LINKS POPULATION MODULE) */}
+            <div>
+              <label className="block text-[11px] font-mono text-slate-400 uppercase mb-1">Vehicle Image Web Link (URL)</label>
+              <input 
+                type="url" name="imageUrl" value={newVehicle.imageUrl} onChange={handleInputChange} placeholder="https://example.com/car-photo.jpg"
+                className="w-full bg-slate-900 border border-white/10 rounded-xl p-3 text-cyan-400 font-mono focus:outline-none focus:border-cyan-500 text-xs"
+              />
+              <span className="text-[10px] text-slate-600 font-mono block mt-1">Leave empty for automatic default mesh generation.</span>
+            </div>
+
+            <button type="submit" className="w-full bg-gradient-to-r from-purple-600 to-cyan-500 text-slate-950 font-extrabold py-3 rounded-xl font-mono text-xs tracking-wider transition-all duration-300 shadow-[0_0_15px_rgba(168,85,247,0.2)] hover:shadow-[0_0_25px_rgba(168,85,247,0.4)]">
+              DEPLOY_ASSET_NODE
             </button>
+          </form>
+        </div>
+
+        {/* Right Side: Owner's Fleet Cards Grid Display with Photos */}
+        <div className="lg:col-span-2 space-y-6">
+          <div className="bg-white/[0.02] backdrop-blur-md border border-white/10 rounded-2xl p-6">
+            <h2 className="text-xl font-bold font-mono tracking-wide text-cyan-400 border-b border-white/5 pb-2 mb-6">
+              🎛️ CURRENT_OWNED_FLEET ({fleet.length})
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              {fleet.map((car) => (
+                <div key={car.id} className="bg-slate-900/50 border border-white/5 rounded-xl overflow-hidden shadow-lg flex flex-col justify-between group transition-all duration-300 hover:border-cyan-500/30">
+                  {/* Photo Display Framework */}
+                  <div className="w-full h-36 bg-slate-950 border-b border-white/5 relative">
+                    <img src={car.imageUrl} alt={car.name} className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-500" />
+                    <span className={`absolute top-2 right-2 text-[9px] font-mono px-2 py-0.5 rounded border uppercase tracking-wider font-bold ${car.status === 'Available' ? 'border-green-500/30 bg-green-950/80 text-green-400' : 'border-amber-500/30 bg-amber-950/80 text-amber-400'}`}>
+                      {car.status}
+                    </span>
+                  </div>
+                  
+                  <div className="p-4 space-y-2">
+                    <div className="flex justify-between items-start">
+                      <h4 className="font-bold text-slate-200 text-base">{car.name}</h4>
+                      <span className="text-[10px] bg-purple-500/10 border border-purple-500/20 text-purple-400 font-mono py-0.5 px-2 rounded">
+                        {car.type}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-xs font-mono text-slate-500 border-t border-white/5 pt-2 uppercase">
+                      <span>Index: {car.vehicleNumber}</span>
+                      <span className="text-cyan-400 font-bold">₹{car.pricePerDay}/Day</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
-
-          {/* Add Vehicle Form */}
-          {showAddForm && (
-            <form onSubmit={handleAddVehicle} className="bg-white rounded-xl p-6 shadow-md border mb-6">
-              <h3 className="font-semibold mb-4">Add New Vehicle</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <input name="name" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} placeholder="Vehicle Name *" className="input-field text-sm" required />
-                <select name="type" value={formData.type} onChange={(e) => setFormData({...formData, type: e.target.value})} className="input-field text-sm">
-                  <option value="car">Car</option><option value="bike">Bike</option><option value="scooter">Scooter</option>
-                  <option value="suv">SUV</option><option value="van">Van</option><option value="truck">Truck</option>
-                </select>
-                <input name="brand" value={formData.brand} onChange={(e) => setFormData({...formData, brand: e.target.value})} placeholder="Brand *" className="input-field text-sm" required />
-                <input name="model" value={formData.model} onChange={(e) => setFormData({...formData, model: e.target.value})} placeholder="Model *" className="input-field text-sm" required />
-                <input type="number" name="year" value={formData.year} onChange={(e) => setFormData({...formData, year: e.target.value})} placeholder="Year *" className="input-field text-sm" required />
-                <input name="registrationNumber" value={formData.registrationNumber} onChange={(e) => setFormData({...formData, registrationNumber: e.target.value})} placeholder="Registration Number *" className="input-field text-sm" required />
-                <select name="fuelType" value={formData.fuelType} onChange={(e) => setFormData({...formData, fuelType: e.target.value})} className="input-field text-sm">
-                  <option value="petrol">Petrol</option><option value="diesel">Diesel</option><option value="electric">Electric</option>
-                  <option value="hybrid">Hybrid</option><option value="cng">CNG</option>
-                </select>
-                <select name="transmission" value={formData.transmission} onChange={(e) => setFormData({...formData, transmission: e.target.value})} className="input-field text-sm">
-                  <option value="manual">Manual</option><option value="automatic">Automatic</option>
-                </select>
-                <input type="number" name="seats" value={formData.seats} onChange={(e) => setFormData({...formData, seats: e.target.value})} placeholder="Seats *" className="input-field text-sm" required />
-                <input type="number" name="pricePerHour" value={formData.pricePerHour} onChange={(e) => setFormData({...formData, pricePerHour: e.target.value})} placeholder="Price/Hour (₹) *" className="input-field text-sm" required />
-                <input type="number" name="pricePerDay" value={formData.pricePerDay} onChange={(e) => setFormData({...formData, pricePerDay: e.target.value})} placeholder="Price/Day (₹) *" className="input-field text-sm" required />
-                <input name="city" value={formData.city} onChange={(e) => setFormData({...formData, city: e.target.value})} placeholder="City *" className="input-field text-sm" required />
-                <input name="state" value={formData.state} onChange={(e) => setFormData({...formData, state: e.target.value})} placeholder="State" className="input-field text-sm" />
-                <input name="address" value={formData.address} onChange={(e) => setFormData({...formData, address: e.target.value})} placeholder="Full Address" className="input-field text-sm" />
-              </div>
-              <textarea name="description" value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} placeholder="Description" className="input-field text-sm mt-4" rows={3} />
-              <input name="features" value={formData.features} onChange={(e) => setFormData({...formData, features: e.target.value})} placeholder="Features (comma separated: AC, GPS, Bluetooth)" className="input-field text-sm mt-4" />
-              <div className="mt-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Images (up to 5)</label>
-                <input type="file" multiple accept="image/*" onChange={(e) => setImages(e.target.files)} className="input-field text-sm" />
-              </div>
-              <div className="flex gap-2 mt-4">
-                <button type="submit" className="btn-primary">Add Vehicle</button>
-                <button type="button" onClick={() => setShowAddForm(false)} className="btn-secondary">Cancel</button>
-              </div>
-            </form>
-          )}
-
-          {vLoading ? (
-            <Loader />
-          ) : myVehicles.length > 0 ? (
-            <div className="grid gap-4">
-              {myVehicles.map((v) => (
-                <div key={v._id} className="bg-white rounded-xl p-4 shadow-sm border flex items-center gap-4">
-                  <img
-                    src={v.images?.[0]?.url || `https://placehold.co/100x80/e2e8f0/64748b?text=${v.type}`}
-                    alt={v.name}
-                    className="w-24 h-18 rounded-lg object-cover"
-                  />
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-semibold">{v.brand} {v.model}</h3>
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${statusBadge[v.status] || 'bg-gray-100'}`}>
-                        {v.status}
-                      </span>
-                    </div>
-                    <p className="text-sm text-gray-500">{v.registrationNumber} • ₹{v.pricePerDay}/day</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Link to={`/vehicles/${v._id}`} className="btn-secondary text-sm">View</Link>
-                    <button onClick={() => handleDeleteVehicle(v._id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg">
-                      <FiTrash2 />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-gray-500 text-center py-8">No vehicles listed yet</p>
-          )}
         </div>
-      )}
 
-      {/* Bookings Tab */}
-      {tab === 'bookings' && (
-        <div>
-          <h2 className="text-lg font-semibold mb-4">Bookings for My Vehicles</h2>
-          {bLoading ? (
-            <Loader />
-          ) : bookings.length > 0 ? (
-            <div className="space-y-3">
+      </div>
+
+      {/* Full Width Bottom Layout: Customer Bookings Table */}
+      <div className="max-w-7xl mx-auto bg-white/[0.02] backdrop-blur-md border border-white/10 rounded-2xl p-6 shadow-2xl">
+        <h2 className="text-xl font-bold font-mono tracking-wide text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-purple-500 border-b border-white/5 pb-3 mb-6">
+          📋 LIVE_CONTRACT_DISPATCH_LEDGER (Real-Time Subscriptions)
+        </h2>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse font-mono text-xs">
+            <thead>
+              <tr className="border-b border-white/10 text-slate-400 uppercase tracking-wider text-[10px] bg-white/[0.01]">
+                <th className="p-4">Contract ID</th>
+                <th className="p-4">Customer Name</th>
+                <th className="p-4">Selected Vehicle</th>
+                <th className="p-4">Lease Duration Segment</th>
+                <th className="p-4">Dispatched Driver Node</th>
+                <th className="p-4 text-center">Clearance Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
               {bookings.map((b) => (
-                <div key={b._id} className="bg-white rounded-xl p-4 shadow-sm border">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="font-semibold">{b.vehicle?.brand} {b.vehicle?.model}</p>
-                      <p className="text-sm text-gray-500">
-                        Customer: {b.customer?.name} • {new Date(b.startDate).toLocaleDateString()} to {new Date(b.endDate).toLocaleDateString()}
-                      </p>
-                      <p className="text-sm font-medium mt-1">₹{b.totalAmount} • {b.bookingType}</p>
-                    </div>
-                    <div className="flex flex-col items-end gap-2">
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${
-                        b.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                        b.status === 'confirmed' ? 'bg-blue-100 text-blue-700' :
-                        b.status === 'completed' ? 'bg-green-100 text-green-700' :
-                        'bg-gray-100 text-gray-700'
-                      }`}>
-                        {b.status}
-                      </span>
-                      {b.status === 'confirmed' && (
-                        <div className="flex gap-1">
-                          <button onClick={() => handleBookingAction(b._id, 'ongoing')} className="text-xs btn-primary py-1">Start Trip</button>
-                          <button onClick={() => handleBookingAction(b._id, 'cancelled')} className="text-xs btn-danger py-1">Cancel</button>
-                        </div>
-                      )}
-                      {b.status === 'ongoing' && (
-                        <button onClick={() => handleBookingAction(b._id, 'completed')} className="text-xs btn-success py-1">Complete</button>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                <tr key={b.id} className="hover:bg-white/[0.02] transition-colors">
+                  <td className="p-4 text-cyan-400 font-bold">{b.id}</td>
+                  <td className="p-4 text-slate-200 font-semibold">{b.customerName}</td>
+                  <td className="p-4">
+                    <span className="block text-slate-200">{b.vehicleName}</span>
+                    <span className="text-[10px] text-slate-500">{b.vehicleNumber}</span>
+                  </td>
+                  <td className="p-4 text-slate-300">{b.duration}</td>
+                  <td className="p-4">
+                    <span className="block text-purple-400 font-bold">{b.driverAllocated}</span>
+                    <span className="text-[10px] text-slate-500">{b.driverPhone}</span>
+                  </td>
+                  <td className="p-4 text-center">
+                    <span className={`inline-block px-3 py-1 rounded-full text-[10px] font-bold border uppercase tracking-wide ${b.status === 'Active Leased' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-blue-500/10 border-blue-500/30 text-blue-400'}`}>
+                      {b.status}
+                    </span>
+                  </td>
+                </tr>
               ))}
-            </div>
-          ) : (
-            <p className="text-gray-500 text-center py-8">No bookings yet</p>
-          )}
+            </tbody>
+          </table>
         </div>
-      )}
+      </div>
+
     </div>
   );
 };

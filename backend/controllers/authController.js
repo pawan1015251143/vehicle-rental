@@ -1,18 +1,22 @@
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 
-// JWT टोकन जनरेट करने का हेल्पर फंक्शन (Mongoose मॉडल मेथड की जगह)
+// JWT टोकन जनरेट करने का हेल्पर फंक्शन
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET || 'secretkey', { expiresIn: '30d' });
 };
 
-// @desc    Register user
+// @desc    Register user (Updated for Role-Specific Dynamic Fields)
 // @route   POST /api/auth/register
 exports.register = async (req, res, next) => {
   try {
-    const { name, email, password, phone, role } = req.body;
+    // 🚀 Destructured all incoming dynamic role fields
+    const { 
+      name, email, password, phone, role, address,
+      licenseNumber, experienceYears, gstin, businessName 
+    } = req.body;
 
-    // Check if user already exists (Sequelize structure)
+    // Check if user already exists
     const existingUser = await User.findOne({ where: { email } });
     if (existingUser) {
       return res
@@ -24,13 +28,30 @@ exports.register = async (req, res, next) => {
     const allowedRoles = ['customer', 'owner', 'driver'];
     const userRole = allowedRoles.includes(role) ? role : 'customer';
 
-    const user = await User.create({
+    // 🚀 Create base user payload
+    const userPayload = {
       name,
       email,
       password,
       phone,
+      address, // Customer aur baki sabke liye address field
       role: userRole,
-    });
+    };
+
+    // 🏎️ If driver, add license details to MySQL payload
+    if (userRole === 'driver') {
+      userPayload.licenseNumber = licenseNumber || null;
+      userPayload.experienceYears = experienceYears || null;
+    }
+
+    // 💼 If owner, add business details to MySQL payload
+    if (userRole === 'owner') {
+      userPayload.gstin = gstin || null;
+      userPayload.businessName = businessName || null;
+    }
+
+    // Save directly to MySQL via Sequelize
+    const user = await User.create(userPayload);
 
     const token = generateToken(user.id);
 
@@ -39,12 +60,15 @@ exports.register = async (req, res, next) => {
       message: 'Registration successful',
       token,
       user: {
-        _id: user.id, // फ्रंटएंड कंपैटिबिलिटी के लिए id को _id बनाकर भेजा है
+        _id: user.id, 
         name: user.name,
         email: user.email,
         role: user.role,
         phone: user.phone,
+        address: user.address,
         avatar: user.avatar,
+        ...(user.role === 'driver' && { licenseNumber: user.licenseNumber, experienceYears: user.experienceYears }),
+        ...(user.role === 'owner' && { gstin: user.gstin, businessName: user.businessName })
       },
     });
   } catch (error) {
@@ -64,7 +88,6 @@ exports.login = async (req, res, next) => {
         .json({ success: false, message: 'Please provide email and password' });
     }
 
-    // MySQL में findOne के लिए 'where' ऑब्जेक्ट का उपयोग होता है
     const user = await User.findOne({ where: { email } });
     if (!user) {
       return res
@@ -78,7 +101,6 @@ exports.login = async (req, res, next) => {
         .json({ success: false, message: 'Account has been deactivated' });
     }
 
-    // पासवर्ड कंपेयर करने के लिए हमारा नया Sequelize प्रोटोटाइप मेथड
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
       return res
@@ -110,7 +132,6 @@ exports.login = async (req, res, next) => {
 // @route   GET /api/auth/me
 exports.getMe = async (req, res, next) => {
   try {
-    // req.user.id को मिडलवेयर से रीड करेंगे (पक्का करें मिडलवेयर में req.user = user सेट हो)
     const user = await User.findByPk(req.user.id);
 
     res.status(200).json({
@@ -123,7 +144,9 @@ exports.getMe = async (req, res, next) => {
         phone: user.phone,
         address: user.address,
         avatar: user.avatar,
-        isActive: user.isActive
+        isActive: user.isActive,
+        ...(user.role === 'driver' && { licenseNumber: user.licenseNumber, experienceYears: user.experienceYears }),
+        ...(user.role === 'owner' && { gstin: user.gstin, businessName: user.businessName })
       },
     });
   } catch (error) {
@@ -135,17 +158,26 @@ exports.getMe = async (req, res, next) => {
 // @route   PUT /api/auth/profile
 exports.updateProfile = async (req, res, next) => {
   try {
-    const { name, phone, address } = req.body;
+    const { name, phone, address, licenseNumber, experienceYears, gstin, businessName } = req.body;
 
     const user = await User.findByPk(req.user.id);
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // Sequelize में अपडेट करने का तरीका
     user.name = name || user.name;
     user.phone = phone || user.phone;
     user.address = address || user.address;
+
+    if (user.role === 'driver') {
+      user.licenseNumber = licenseNumber || user.licenseNumber;
+      user.experienceYears = experienceYears || user.experienceYears;
+    }
+    if (user.role === 'owner') {
+      user.gstin = gstin || user.gstin;
+      user.businessName = businessName || user.businessName;
+    }
+
     await user.save();
 
     res.status(200).json({
@@ -181,7 +213,6 @@ exports.updatePassword = async (req, res, next) => {
         .json({ success: false, message: 'Current password is incorrect' });
     }
 
-    // नया पासवर्ड डालने पर हमारे hook के द्वारा यह अपने आप हैश हो जाएगा
     user.password = newPassword;
     await user.save();
 
@@ -212,7 +243,6 @@ exports.uploadAvatar = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // JSON डेटा टाइप के रूप में इमेज ऑब्जेक्ट को सेव करना
     user.avatar = {
       public_id: req.file.filename,
       url: req.file.path,
