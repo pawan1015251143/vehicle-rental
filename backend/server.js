@@ -12,12 +12,30 @@ dotenv.config();
 // 2. Initialize Core App Engine
 const app = express();
 
-// 3. Middlewares Setup
+// 3. Middlewares Setup (With Dynamic Live CORS Domains Fixed)
 app.use(helmet());
+
+const allowedOrigins = [
+  'http://localhost:5173',
+  'https://frontend-nine-lime-88.vercel.app' // Tera naya production live frontend url
+];
+
 app.use(cors({
-  origin: 'http://localhost:5173', // Vite Frontend Port Link
-  credentials: true
+  origin: function (origin, callback) {
+    // Allows requests with no origin like postman or curl
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      return callback(null, true);
+    } else {
+      console.log(`❌ Blocked by CORS Architecture: ${origin}`);
+      return callback(new Error('Not allowed by CORS handler'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
+
 app.use(express.json());
 
 // 4. 🗄️ MySQL Connection Pool Settings
@@ -42,13 +60,16 @@ db.getConnection((err, connection) => {
 });
 
 // =========================================================================
-// 🚀 FIXED SIGN UP / REGISTER ROUTE (WITH BOTH TIMESTAMP FORCES)
+// 🚀 FIXED SIGN UP / REGISTER ROUTE (WITH ALL COLUMNS & TIMESTAMPS)
 // =========================================================================
 app.post('/api/auth/register', async (req, res) => {
   console.log("📥 RECEIVED SIGNUP PAYLOAD:", req.body);
 
   try {
-    const { name, email, password, role } = req.body;
+    const { 
+      name, email, password, role, phone, address, 
+      licenseNumber, experienceYears, gstin, businessName 
+    } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({ success: false, message: "Email and password are required fields!" });
@@ -69,16 +90,28 @@ app.post('/api/auth/register', async (req, res) => {
         const hashedPassword = await bcryptjs.hash(password, salt);
         const userRole = role || 'customer';
 
-        // 🛠️ FIX: Explicitly passing NOW() for both createdAt and updatedAt to kill MySQL strict defaults error
+        // 🛠️ BULLETPROOF FIX: Saare required aur optional data elements query string me lock kar diye hain
         const insertSql = `
-          INSERT INTO users (name, email, password, role, createdAt, updatedAt) 
-          VALUES (?, ?, ?, ?, NOW(), NOW())
+          INSERT INTO users 
+          (name, email, password, role, phone, address, licenseNumber, experienceYears, gstin, businessName, createdAt, updatedAt) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
         `;
         
-        db.query(insertSql, [name || 'Pawan Kumar', email, hashedPassword, userRole], (insertErr, result) => {
+        db.query(insertSql, [
+          name || 'Pawan Kumar', 
+          email, 
+          hashedPassword, 
+          userRole,
+          phone || null,
+          address || null,
+          licenseNumber || null,
+          experienceYears ? parseInt(experienceYears) : null,
+          gstin || null,
+          businessName || null
+        ], (insertErr, result) => {
           if (insertErr) {
             console.error("❌ MySQL Insertion Error:", insertErr.message);
-            return res.status(500).json({ success: false, error: "Database execution layer collapsed." });
+            return res.status(500).json({ success: false, error: `Database insertion collapsed: ${insertErr.message}` });
           }
 
           const secretKey = process.env.JWT_SECRET || 'cyber_secret_key_fixed_node_2026';
